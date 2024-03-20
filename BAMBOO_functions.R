@@ -8,6 +8,7 @@ suppressWarnings(suppressMessages(require(tidyverse))) #
 suppressWarnings(suppressMessages(require(readr))) #
 # library(preprocessCore) #
 suppressWarnings(suppressMessages(require(ggplot2))) #
+suppressWarnings(suppressMessages(require(robustbase)))
 
 recode <- dplyr::recode
 select <- dplyr::select
@@ -17,30 +18,62 @@ summarise <- dplyr::summarise
 group_by <- dplyr::group_by
 case_when <- dplyr::case_when
 
-message("loading the latest function y'all")
+message("                                                                                
+                           %%%%%%%%%%      .%%%%%%%%%&                          
+                           #%%%%%%%%%#     %%%%%%%%%%,                          
+                *%%%%.      %%%%%%%%%%/   %%%%%%%%%%%      ,%%%%.               
+             ,%%%%%%%%%*    %%%%% .%%%%, *%%%%/ %%%%(    (%%%%%%%%%,            
+            *%%%%%%%%%%%#(  *%%%%   %%%%.%%%%.  (%%%.  %%#%%%%%%%%%%,           
+              #%%%%# *%%%%%%.%%%#    %%%%%%/    #%%%.%%%%%%,(%%%%%(             
+                %%%%%/   #%%%%%%.     %%%#      %%%%%%%%*  .%%%%&               
+     ,%%%%#,     ,%%%%/    .%%%%       (,       %%%#      ,%%%%.     *%#%%%.    
+    (%%%%%%%%%%%%* (%%%.      .%                ,        #%%%/./%%%%%%%%%%%%/   
+   #%%%%%%%%%%%%%%%%%%%%                                %%%%%%%%%%%%%/%%%%%%%(  
+   *%%%%%%%%&,     ./#%%%                              (.           #%%%%%%%#.  
+       .%%%%%%%%             %%%%%%,         *%%%%%%             (%%%%%%#       
+            (%%%%%           %%%%%%,         *%%%%%%         *%%%%#&/           
+ ,*/(#%%%&%%%%%%%%%%/        %%%%%%,         *%%%%%%       %%%%%%%%%%%%%&%%#(/**
+*%%%%%%%%%%%%%%#/*.          %%%%%%,         *%%%%%%             (%%%%%%%%%%%%%%
+/%%%%%%%,                    %%%%%%,         *%%%%%%                    /%%%%%%%
+,%%%%%%%%%%%%%%(.            %%%%%%,         *%%%%%%         .*(#%%%%%%%%%%%%%%%
+ ..,*/(#%&%%%%%%%%%%%#       %%%%%%*         /%%%%%#        *%%%%%%%%%%%%#(/*,..
+            #%%%%%%.         *%%%%%%         %%%%%%,          .%%%%%#           
+       ,%%%%%%%,              /%%%%%%%,   ,%%%%%%%/              #%%%%%%%,      
+   /%%%%%%%%/          ./%      %#%%%%%%%%%%%%%%#       #%%%#.     .&%%%%%%%%/  
+   #%%%%%%%/%%%%%%%%%%%%%          ,(%%%%%%#(.           %%%%%%%%%%%%%%%%%%%%(  
+    (%%%%%%%%%%%#, #%%%(        *                %,      .%%%# ,#%%%%%%%%%%%/   
+     ,%#%%(      ,%%%%      ,%%#%       /(       %%%%,    (%%%%,      #%%%%.    
+               .%%%%%   /%%%%%%%#      %%%%     ,%%%%%%#   (%%%%%               
+              #%%%%%*/%%%%%#.%%%(    #%%%%%#    %%%% %%%%%%(.#%%%%#             
+            *%%%%%%%%%%%#(  ,%%%/  /%%%%.%%%%  .%%%%,  (%%%%%%%%%%%%*           
+             ,%%%%%%%%%,    #%%%# #%%%%, ,%%%%. %%%%#    ,%%%%%%%%%.            
+                .&%%%       %%%%%%%%%%/   #%%%%%%%%%%      .%%%%.               
+                           (%%%%%%%%%%     %%%%%%%%%%*                          
+                           %%%%%%%%%%      .%%%%%%%%%&                          
 
-BAMBOO_normalization <- function(plateReference, plateSubject, BCs, LODthreshold = 8){
-  #plat
-  #
-  #
-  #
-  #
-  #
-  #
+        
+        
+                        Importing the BAMBOO functions 
+                          h.m.smits-7@umcutrecht.nl")
+
+BAMBOO_normalization <- function(plateReference, plateSubject, BCs, LODthreshold = 6){
+  # The original BAMBOO function that normalizes the data between two plates using bridging controls
+  # plateReference: the references plate as NPX long format file
+  # plateSubject: the plate that has to be normalized to the reference plate, in NPX long format
+  # BCs: vector with BC names (as seen in the SampleID column)
+  # LODthreshold: Number of values that have to be above LOD to be not flagged
+  
   mutate <- dplyr::mutate
   if(is.null(BCs)){
-    
     BCs <- intersect(plateReference$SampleID, plateSubject$SampleID)
-    
   }
   
-  BCs <- removeOutliers(plateReference, plateSubject, BCs, quantileThreshold = 0.99) #based on interquantile outlier detection
+  BCs <- removeOutliers(plateReference, plateSubject, BCs, quantileThreshold = 0.95) #based on interquantile outlier detection
   
   flaggedAssays <- flagAssay(plateReference = plateReference, plateSubject = plateSubject, BCs = BCs, BCsAboveLOD = LODthreshold, correlationThreshold = 0)
   
-  flaggedCorrelationAssays <- flagAssayCorrelation(plateReference = plateReference, plateSubject = plateSubject, BCs = BCs, BCsAboveLOD = LODthreshold, correlationThreshold = 0)
+  # flaggedCorrelationAssays <- flagAssayCorrelation(plateReference = plateReference, plateSubject = plateSubject, BCs = BCs, BCsAboveLOD = LODthreshold, correlationThreshold = 0)
   
-  # flaggedAssays <- NA
   plateReferenceBCs <- plateReference %>% 
     mutate(AssayFlag = Assay%in%flaggedAssays) %>% 
     group_by(Assay) %>% 
@@ -104,7 +137,7 @@ BAMBOO_normalization <- function(plateReference, plateSubject, BCs, LODthreshold
   return(plateSubject)
 }
 
-removeOutliers <- function(plateReference, plateSubject, BCs, quantileThreshold = 1){ #inter Quantile outlier detection -> can be improved
+removeOutliers <- function(plateReference, plateSubject, BCs, quantileThreshold = 0.95){ #inter Quantile outlier detection -> can be improved
   
   ss <- sumOfSquares(plateReference, plateSubject, samplesOfInterest = BCs, na.rm = T)
   
@@ -114,6 +147,16 @@ removeOutliers <- function(plateReference, plateSubject, BCs, quantileThreshold 
   
   return(BCs[!BCs%in%outlierSamples])
   
+}
+
+sumOfSquares <- function(plateRef, plateSubject, samplesOfInterest = NULL, na.rm = F){ 
+  if(is.null(samplesOfInterest)){
+    samplesOfInterest <- intersect(plateRef$SampleID, plateSubject$SampleID)
+  }
+  ss <- inner_join(plateRef %>% filter(SampleID %in% samplesOfInterest), plateSubject %>% filter(SampleID %in% samplesOfInterest), by = c("SampleID", "Assay")) %>% 
+    filter(SampleID%in%samplesOfInterest) %>% group_by(SampleID) %>% 
+    summarise(SS = sum((NPX.x - NPX.y)**2, na.rm = na.rm))
+  return(ss)
 }
 
 readNPX <- function(file) {
