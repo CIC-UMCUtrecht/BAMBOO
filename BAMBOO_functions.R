@@ -1,7 +1,8 @@
-suppressWarnings(suppressMessages(require(OlinkAnalyze))) #
+# suppressWarnings(suppressMessages(require(OlinkAnalyze))) #
 # suppressWarnings(suppressMessages(require(RUVSeq))) #
 # suppressWarnings(suppressMessages(require(ggfortify, verbose = F)))
 suppressWarnings(suppressMessages(require(tidyverse))) #
+suppressWarnings(suppressMessages(require(readxl))) #
 # suppressWarnings(suppressMessages(require(pheatmap))) #
 # suppressWarnings(suppressMessages(require(RColorBrewer))) # 
 # suppressWarnings(suppressMessages(require(dbscan))) # 
@@ -55,6 +56,48 @@ message("
         
                         Importing the BAMBOO functions 
                           h.m.smits-7@umcutrecht.nl")
+
+loadNPXfiles <- function(path){
+  plateFiles <- list.files(path, full.names = T)
+  plates <- Reduce(bind_rows, lapply(plateFiles, readNPX))
+  plateList <- split(plates,f = plates$PlateID)
+  return(plateList)
+}
+
+readNPX <- function(file){
+  suppressMessages(p <- read_excel(file, col_names = F))
+  if(p[2,1] == "NPX data"){
+    ########################################################################
+    # This is classic style Olink Data, we transform it to long format data#
+    ########################################################################
+    header <- p[1:7,]
+    EndBodyRow <- max(which(is.na(p[,1]))) - 1
+    NPXdata <- p[8:EndBodyRow,1:93]
+    SampleData <- p[8:EndBodyRow,94:97]
+    tail <- p[(EndBodyRow + 1):(EndBodyRow + 4),]
+    
+    Assays <- unname(unlist(header[4,2:93]))
+    LOD_df <- data.frame(Assay = Assays, LOD = unname(unlist(tail[3,2:93])))
+    plateID <- data.frame(SampleID = NPXdata[,1][[1]], 
+                          PlateID = SampleData[,1][[1]],
+                          stringsAsFactors = F
+                          )
+    
+    colnames(NPXdata) <- c("SampleID", Assays)
+    
+    suppressMessages(
+      longData <- NPXdata %>% 
+      pivot_longer(cols = all_of(Assays), values_to = "NPX", names_to = "Assay") %>% 
+      mutate(NPX = as.numeric(NPX)) %>% 
+      left_join(plateID) %>% 
+      left_join(LOD_df) %>% 
+      mutate(LOD = as.numeric(LOD)))
+      
+  }else{
+    message("message BAMBOO is not yet working with the other dataformat")
+  }
+  return(longData)
+}
 
 BAMBOO_normalization <- function(plateReference, plateSubject, BCs, LODthreshold = 6){
   # The original BAMBOO function that normalizes the data between two plates using bridging controls
@@ -132,10 +175,37 @@ BAMBOO_normalization <- function(plateReference, plateSubject, BCs, LODthreshold
     left_join(Adj_factors, by = "Assay") %>% 
     mutate(NPX = NPX*modelCoeff[["pseudoReference.sub"]] + modelCoeff[["(Intercept)"]] + Adj_factors,
            LOD = LOD*modelCoeff[["pseudoReference.sub"]] + modelCoeff[["(Intercept)"]] + Adj_factors) %>% 
-    mutate(AssayFlag = Assay%in%flaggedAssays, AssayFlagCorrelation = Assay%in%flaggedCorrelationAssays)
+    mutate(AssayFlag = Assay%in%flaggedAssays)
   
   return(plateSubject)
 }
+
+flagAssay <- function(plateReference, plateSubject, BCs, plateBelowLOD = 1, BCsAboveLOD = 6, correlationThreshold = 0.01){
+  belowLODplate.ref <- plateReference %>% group_by(Assay) %>% mutate_at(vars(NPX), ~replace(., is.na(.), 0)) %>% filter((sum(NPX < LOD, na.rm = T)/length(NPX)) > plateBelowLOD) %>% pull(Assay) %>% unique()
+  belowLODplate.sub <- plateSubject %>% group_by(Assay) %>% mutate_at(vars(NPX), ~replace(., is.na(.), 0)) %>% filter((sum(NPX < LOD, na.rm = T)/length(NPX)) > plateBelowLOD) %>% pull(Assay) %>% unique()
+  
+  belowLODBCs.ref <- plateReference %>% filter(SampleID%in%BCs) %>% mutate_at(vars(NPX), ~replace(., is.na(.), 0)) %>% group_by(Assay) %>% filter((sum(NPX > LOD) < BCsAboveLOD)) %>% pull(Assay) %>% unique()
+  belowLODBCs.sub <- plateSubject %>% filter(SampleID%in%BCs) %>% mutate_at(vars(NPX), ~replace(., is.na(.), 0)) %>% group_by(Assay) %>% filter((sum(NPX > LOD) < BCsAboveLOD)) %>% pull(Assay) %>% unique()
+  
+  # uncorrelatedAssays <- inner_join(plateReference, plateSubject, by = c("SampleID", "Assay")) %>% 
+  #   select(c(SampleID, NPX.x, NPX.y, Assay)) %>% 
+  #   filter(SampleID%in%BCs) %>% 
+  #   group_by(Assay) %>% 
+  #   summarise(Assay = Assay, assayCorrelation = cor(NPX.x, NPX.y)) %>% #remove below LOD assays??? 
+  #   filter(abs(assayCorrelation) < correlationThreshold) %>% 
+  #   pull(Assay)
+  
+  uncorrelatedAssays <- NULL
+  
+  # message("The following assays were removed because they were below detection limit in ", plateBelowLOD*100, "% of the samples ", paste(unique(c(belowLODplate.ref, belowLODplate.sub)), collapse = ", ") )
+  message("The following assays were normalized using intencity normalization because less than ", BCsAboveLOD, " samples were above detection limit ",paste(unique(c(belowLODBCs.ref, belowLODBCs.sub)), collapse = ", "))
+  message("The following assays were normalized using intencity normalization because they had a correlation coefficient of less than  ", correlationThreshold, " " ,paste(uncorrelatedAssays, collapse = ", "))
+  
+  flaggedAssays <- unique(c(belowLODBCs.ref, belowLODBCs.sub, uncorrelatedAssays))
+  
+  return(flaggedAssays)
+}
+
 
 removeOutliers <- function(plateReference, plateSubject, BCs, quantileThreshold = 0.95){ #inter Quantile outlier detection -> can be improved
   
@@ -405,4 +475,8 @@ writeOlinkXLSX <- function(plateList, normMethod = "BAMBOO", directory){
   # file <- paste0(directory, plateName, "_AllPlates_", normMethod, ".xlsx")
   # 
   # openxlsx::write.xlsx(exportPlate, file = file, col.names = F)
+}
+
+plotBeforeAndAfter <- function(referencePlate, subjectPlate, norm.SubjectPlate){
+  
 }
