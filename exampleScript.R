@@ -6,8 +6,8 @@ source("/Users/Hidde/Documents/GitHub/BAMBOO/BAMBOO_functions.R")
 path <- "/Users/Hidde/Documents/GitHub/BAMBOO/data/"
 plateList <- loadNPXfiles("/Users/Hidde/Documents/GitHub/BAMBOO/data/")
 
-referencePlate <- plateList[[3]] %>% renameSamplesAndAddPlate()
-subjectPlate <- plateList[[1]] %>% renameSamplesAndAddPlate()
+referencePlate <- plateList[[1]]
+subjectPlate <- plateList[[2]]
 
 BCs <- intersect(referencePlate$SampleID, subjectPlate$SampleID)
 
@@ -15,4 +15,4 @@ norm.SubjectPlate <- BAMBOO_normalization(referencePlate, subjectPlate, BCs = BC
 
 plotBeforeAndAfter(referencePlate, subjectPlate, norm.SubjectPlate)
 
-writeNPX(norm.SubjectPlate, path = path, filename = "normalizedSubjectPlate.xlsx")
+writeNPX(norm.SubjectPlate, path =  "/Users/Hidde/Documents/GitHub/BAMBOO/normData/", filename = "normalizedSubjectPlate.xlsx")

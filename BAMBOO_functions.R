@@ -1,9 +1,7 @@
-suppressWarnings(suppressMessages(require(tidyverse))) #
-suppressWarnings(suppressMessages(require(openxlsx))) #
-suppressWarnings(suppressMessages(require(readr))) #
-suppressWarnings(suppressMessages(require(ggplot2))) #
-suppressWarnings(suppressMessages(require(robustbase)))
-suppressWarnings(suppressMessages(require(gridExtra))) #
+suppressWarnings(suppressMessages(require(tidyverse))) # rewrite without the tidyverse????
+suppressWarnings(suppressMessages(require(openxlsx))) # Only package that is really needed
+suppressWarnings(suppressMessages(require(robustbase))) # Only package that is really needed
+suppressWarnings(suppressMessages(require(gridExtra))) # save plots separate????
 
 recode <- dplyr::recode
 select <- dplyr::select
@@ -60,13 +58,20 @@ message("
                           h.m.smits-7@umcutrecht.nl")
 
 loadNPXfiles <- function(path){
+  # This function loads all NPX files in a folder and returns a list of dataframes
+  # param path: path to the folder with the NPX files
   plateFiles <- list.files(path, full.names = T)
   plates <- Reduce(bind_rows, lapply(plateFiles, readNPX))
   plateList <- split(plates,f = plates$PlateID)
   return(plateList)
 }
 # file <- "/Users/Hidde/Documents/GitHub/BAMBOO/data//normalizedSubjectPlate.xlsx"  
+
 readNPX <- function(file){
+  # To do: make the format for the NPX file more flexible
+  # This function reads a single NPX file and returns a long format dataframe
+  # param file: path to the NPX file this can be in Olink format or a data.frame with samples as rows, and columns as proteins
+  
   suppressMessages(p <- read.xlsx(file, colNames = F))
   if(p[2,1] == "NPX data"){
     ########################################################################
@@ -174,8 +179,13 @@ BAMBOO_normalization <- function(plateReference, plateSubject, BCs, LODthreshold
 
 
 
-flagAssay <- function(plateReference, plateSubject, BCs, plateBelowLOD = 1, BCsAboveLOD = 6, correlationThreshold = 0.01){
-
+flagAssay <- function(plateReference, plateSubject, BCs, BCsAboveLOD = 6){
+  # Function that flags assays that are below the detection limit in a certain number of the samples
+  # plateReference: the references plate as NPX long format file
+  # plateSubject: the plate that has to be normalized to the reference plate, in NPX long format
+  # BCs: vector with BC names (as seen in the SampleID column)
+  # BCsAboveLOD: Number of values that have to be above LOD to be not flagged
+  
   belowLODBCs.ref <- plateReference %>% filter(SampleID%in%BCs) %>% mutate_at(vars(NPX), ~replace(., is.na(.), 0)) %>% group_by(Assay) %>% filter((sum(NPX > LOD) < BCsAboveLOD)) %>% pull(Assay) %>% unique()
   belowLODBCs.sub <- plateSubject %>% filter(SampleID%in%BCs) %>% mutate_at(vars(NPX), ~replace(., is.na(.), 0)) %>% group_by(Assay) %>% filter((sum(NPX > LOD) < BCsAboveLOD)) %>% pull(Assay) %>% unique()
   
@@ -189,6 +199,11 @@ flagAssay <- function(plateReference, plateSubject, BCs, plateBelowLOD = 1, BCsA
 
 
 removeOutliers <- function(plateReference, plateSubject, BCs, quantileThreshold = 0.95){ #inter Quantile outlier detection -> can be improved
+  # Function that removes outliers based on the sum of squares of the difference between the reference and the subject plate
+  # plateReference: the references plate as NPX long format file
+  # plateSubject: the plate that has to be normalized to the reference plate, in NPX long format
+  # BCs: vector with BC names (as seen in the SampleID column)
+  # quantileThreshold: the threshold for the sum of squares to be considered an outlier
   
   ss <- sumOfSquares(plateReference, plateSubject, samplesOfInterest = BCs, na.rm = T)
   
@@ -201,6 +216,12 @@ removeOutliers <- function(plateReference, plateSubject, BCs, quantileThreshold 
 }
 
 sumOfSquares <- function(plateRef, plateSubject, samplesOfInterest = NULL, na.rm = F){ 
+  # Function that calculates the sum of squares of the difference between the reference and the subject plate BCs
+  # plateReference: the references plate as NPX long format file
+  # plateSubject: the plate that has to be normalized to the reference plate, in NPX long format
+  # samplesOfInterest: vector with BC names (as seen in the SampleID column)
+  # na.rm: remove NA values
+  
   if(is.null(samplesOfInterest)){
     samplesOfInterest <- intersect(plateRef$SampleID, plateSubject$SampleID)
   }
@@ -213,6 +234,9 @@ sumOfSquares <- function(plateRef, plateSubject, samplesOfInterest = NULL, na.rm
 
 writeNPX <- function(plate, path, filename){
   # This functions save the long format NPX data in a excel file
+  # plate: the NPX data in long format
+  # path: the path where the file has to be saved
+  # filename: the name of the file
   
   body <- plate %>% select(-Adj_factor, -LOD, -AssayFlag, -plate) %>% pivot_wider(names_from = "Assay", values_from = "NPX")
   plateID <- plate %>% pull(plate) %>% unique()
@@ -231,225 +255,14 @@ writeNPX <- function(plate, path, filename){
   write.xlsx(NPX_data, file = paste0(path, filename))
 }
 
-
-writeOlinkXLSX <- function(plateList, normMethod = "BAMBOO", directory){
-  for(plateName in names(plateList)){
-    plate <- plateList[[plateName]]
-    headerAssayInfo <- plate %>% select(c(Panel, Assay, UniProt, OlinkID)) %>% unique() 
-    header <- matrix(data = NA, nrow = 2, ncol = nrow(headerAssayInfo) + 5)
-    header[1,2] <- "BAMBOO_export_v1"
-    header[2,1] <- "NPX data"
-    headerAssayInfo1 <- bind_rows(c("Panel" = "Panel", "Assay" = "Assay", "UniProt" = "Uniprot ID", "OlinkID" = "OlinkID"), headerAssayInfo) #%>% mutate(emptyRow = NA) #%>% t()
-    headerAssayInfo2 <- data.frame(Panel = unique(plate$Panel),
-                                   Assay = c("PlateID", "QC Warning", "QC Deviation from median", "QC Deviation from median"),
-                                   UniProt = c(NA, NA, "Inc Ctrl 2", "Det Ctrl"),
-                                   OlinkID = NA)
-    headerAssayInfo <- bind_rows(headerAssayInfo1, headerAssayInfo2) %>% mutate(emptyRow = NA) %>% t()
-    rownames(headerAssayInfo) <- NULL
-    header <- rbind(header, headerAssayInfo)
-    
-    NPXbody <- plate %>% 
-      mutate(SampleID_plate = paste0(SampleID, "_", plate)) %>% 
-      select(c(SampleID_plate, NPX, Assay, PlateID, QC_Warning, `QC Deviation Inc Ctrl`, `QC Deviation Det Ctrl`)) %>% 
-      pivot_wider(names_from = c(Assay), values_from = NPX) %>% 
-      relocate(c(PlateID, QC_Warning, `QC Deviation Inc Ctrl`, `QC Deviation Det Ctrl`), .after = `CSF-1`) %>% 
-      as.matrix()
-    
-    NPX <- plate %>% 
-      mutate(SampleID_plate = paste0(SampleID, "_", plate)) %>% select(c(NPX, Assay, SampleID_plate)) %>% pivot_wider(names_from = Assay, values_from = NPX) %>% select(-SampleID_plate)
-    
-    tail <- plate %>%  dplyr::slice(c(seq(1,8096, 88))) %>% pull(LOD) 
-    
-    belowLOD <- apply(t(as.matrix(NPX)),1,function(x){paste0( round(( sum( x < tail ) / length( x ) ) * 100, digits = 2), "%")})
-    
-    tail <- cbind(matrix(c("LOD", tail, "Missing Data freq.", belowLOD, "Normalization", rep(normMethod, length(belowLOD))), nrow = 3, byrow = T), matrix(nrow = 3, ncol = 6))
-    
-    tail <- rbind(matrix(nrow = 1, ncol = ncol(tail)), tail)
-    
-    exportPlate <- rbind(header,NPXbody,tail)
-    
-    file <- paste0(directory, plateName, "_", normMethod, ".xlsx")
-    
-    openxlsx::write.xlsx(exportPlate, file = file, col.names = F)
-  }
-  
-
-}
-
 plotBeforeAndAfter <- function(referencePlate, subjectPlate, norm.SubjectPlate){
+  # Function that plots the NPX values of the reference plate, the subject plate and the normalized subject plate
+  # referencePlate: the references plate as NPX long format file
+  # subjectPlate: the plate that has to be normalized to the reference plate, in NPX long format
+  # norm.SubjectPlate: the normalized values of the subject plate
   
   p1 <- inner_join(referencePlate, subjectPlate, by = c("SampleID", "Assay")) %>% ggplot(aes(x = NPX.x, y = NPX.y, col = Assay, shape = NPX.x < LOD.x | NPX.y < LOD.y)) + geom_point() + theme_bw() + theme(legend.position = "none") + geom_abline(linetype = 2) + xlim(c(-2,16)) + ylim(c(-2,16))  + ggtitle("Before")
   p2 <- inner_join(referencePlate, norm.SubjectPlate, by = c("SampleID", "Assay")) %>% ggplot(aes(x = NPX.x, y = NPX.y, col = Assay, shape = NPX.x < LOD.x | NPX.y < LOD.y)) + geom_point() + theme_bw() + theme(legend.position = "none") + geom_abline(linetype = 2)+ xlim(c(-2,16))+ ylim(c(-2,16)) + ggtitle("After")
   
   gridExtra::grid.arrange(p1,p2, nrow = 1)
 }
-
-renameSamplesAndAddPlate <- function(data){
-  ##### mostly bridging controls have multiple names on various plates, this renames them to the correct name
-  ##### also renames BCs which where thawed mutliple times and looked to be good
-  ##### Add a column with plate numbers 
-  
-  data <- data %>% mutate(
-    SampleID = recode(
-      SampleID,
-      #plate 2 BC to plate 1
-      "JDM#1" = "BC_JDM_p1", #
-      "JDM#3" = "BC_JDM_p3", #
-      "JDM#4" = "BC_JDM_p4", #
-      "JDM#7 heparin" = "BC_JDM_p7", #
-      "JDM#8 heparin" = "BC_JDM_p8", # 
-      "JDM#9 heparin" = "BC_JDM_p9", #
-      "HC_1 heparin" = "HC_Sohep_1", #
-      "HC_7" = "HC-Sohep_7", #
-      "IBD_7 heparin" = "Twin7_Sohep", #
-      "HC_6 heparin" = "HC_Sohep_6", #
-      "IBD_4 heparin" = "Twin4_Sohep", #
-      "IBD_2" = "Twin2_Sohep", # 
-      "JDM #5" = "BC_JDM_s5", #
-      "JDM#7 serum" = "BC_JDM_s7", #
-      "JDM#8 serum" = "BC_JDM_s8", #
-      "JDM#9 serum" = "BC_JDM_s9", #
-      "IDB_7" = "Twin7_serum" , #
-      "HC_1 serum" = "HC_serum_1_zonder_gel", #
-      "HC_6 serum" = "HC_serum_6_met_gel", #
-      "IBD_1" = "Twin1_serum", #
-      "IBD_6" = "Twin6_serum", #
-      "HC_9" = "HC_serum_9_zonder_gel", #
-      "HC_4" = "HC_serum_4_zonder_gel", #
-      "IBD_4 serum" = "Twin4_serum", #
-      "HC_2" = "HC_serum_2_met_gel", # 
-      
-      # different naming same samples because of replicates!
-      "150903-55062 3-9-2015" = "onset_JDMA003_s",
-      "JDM0287 22-1-2016" = "onset_ JDMU009_s",
-      "P17-58232 18-5-2017" = "onset_JDMN004_s",
-      "P17-59042 2-6-2017" = "onset_JDMR006_s",
-      "P17-61987 20-7-2017" = "onset_ JDMU033_s",
-      "P17-72116 21-12-2017" = "onset_JDMN005_s",
-      "P18-66720 5-7-2018" = "active_JDMN008_s",
-      "P18-76255 4-10-2018" = "active_JDMN006_s",
-      "P19-51219 17-1-2019" = "remission_JDMN007_s",
-      "P17-56441 19-4-2017" = "onset_JDMU027_2_p",
-      
-      #plate 3,4,5 to plate 1 BCs
-      "JDM#4_p" = "BC_JDM_p4", #
-      "JDM#7_p" = "BC_JDM_p7", #
-      "JDM#9_p" = "BC_JDM_p9", #
-      "HC_1_p" = "HC_Sohep_1", #
-      "HC_7_p" = "HC-Sohep_7", #
-      "IBD_2_p" = "Twin2_Sohep", #
-      "JDM#5_s" = "BC_JDM_s5", #
-      "JDM#8_s" = "BC_JDM_s8", #
-      "HC_6_wg_s" = "HC_serum_6_met_gel", #
-      "HC_9_wog_s" = "HC_serum_9_zonder_gel", #
-      "IBD_4_s" = "Twin4_serum", #
-      "HC_2_wg_s" = "HC_serum_2_met_gel", #
-      "HC_6,_wg_s" = "HC_serum_6_met_gel",
-      "IBD_4" = "Twin4_serum"
-      
-      
-    )
-  ) %>% group_by(PlateID) %>% 
-    mutate(SampleID = case_when(
-      SampleID == "IBD_4" ~ "Twin4_serum",
-      SampleID == "JDM#7_1" & !"BC_JDM_p7"%in%SampleID ~ "BC_JDM_p7",
-      # SampleID == "IBD_4_1"~ "Twin4_serum",
-      # SampleID == "IBD_4_2"~ "Twin4_serum",
-      SampleID == "IBD_2_1" & !"Twin2_Sohep"%in%SampleID ~ "Twin2_Sohep",
-      SampleID == "JDM#4_2" & !"BC_JDM_p4"%in%SampleID ~ "BC_JDM_p4",
-      SampleID == "JDM#7"~ "BC_JDM_p7",
-      SampleID == "JDM#5"~ "BC_JDM_s5",
-      # SampleID == "JDM#7_2" & !"BC_JDM_p7"%in%SampleID ~ "BC_JDM_p7",
-      SampleID == "JDM#8_3" & !"BC_JDM_s8"%in%SampleID ~ "BC_JDM_s8",
-      # SampleID == "JDM#9_2" & !"BC_JDM_p9"%in%SampleID ~ "BC_JDM_p9",
-      SampleID == "IBD_4_1"& !"Twin4_serum"%in%SampleID ~ "Twin4_serum",
-      # SampleID == "IBD_2_1"& !"Twin2_Sohep"%in%SampleID ~ "Twin2_Sohep",
-      SampleID == "JDM#5_2" & !"BC_JDM_s5"%in%SampleID ~ "BC_JDM_s5",
-      # SampleID == "JDM#7_2" & !"BC_JDM_s7"%in%SampleID ~ "BC_JDM_s7",
-      # SampleID == "JDM#8_s_1/27" & !"BC_JDM_s8"%in%SampleID ~ "BC_JDM_s8",
-      # SampleID == "JDM#9_2" & !"BC_JDM_s9"%in%SampleID ~ "BC_JDM_s9",
-      # SampleID == "JDM#4,_2" & !"BC_JDM_p4"%in%SampleID ~ "BC_JDM_p4",
-      # SampleID == "JDM#8_s_1/27" & !"BC_JDM_p8"%in%SampleID ~ "BC_JDM_p8",
-      SampleID == "IBD_4_2" & !"Twin4_serum"%in%SampleID & ! "IBD_4_1" %in% SampleID  ~ "Twin4_serum", #& !"IBD_4_1"%in%SampleID & !"IBD_4"%in%SampleID
-      SampleID == "IBD_4_4" & !"Twin4_serum"%in%SampleID ~ "Twin4_serum", #& !"IBD_4_1"%in%SampleID & !"IBD_4"%in%SampleID 
-      SampleID == "IBD_2_2" & !"Twin2_Sohep"%in%SampleID & !"IBD_2_1"%in%SampleID  ~ "Twin2_Sohep" , #& !"IBD_2_1"%in%SampleID
-      SampleID == "HC_2, met gel" ~ "HC_serum_2_met_gel",
-      SampleID == "HC_6, met gel" ~ "HC_serum_6_met_gel",
-      SampleID == "HC_9 zonder gel" ~ "HC_serum_9_zonder_gel",
-      SampleID == "HC_1" ~ "HC_Sohep_1",
-      SampleID == "JDM#4, JDMN006" ~ "BC_JDM_p4",
-      SampleID == "JDM#9, JDML001" ~ "BC_JDM_p9",
-      SampleID == "JDM#7, JDMN010" ~ "BC_JDM_p7",
-      SampleID == "JDM#8, JDMR008" ~ "BC_JDM_s8",
-      SampleID == "JDM#5, JDMN007" ~ "BC_JDM_s5",
-      SampleID == "JDM#8_s_1/27" ~ "BC_JDM_s8",
-      SampleID == "JDM#4, aliquot 2e batch" & !"JDM#4, JDMN006" %in% SampleID & ! "BC_JDM_p4" %in% SampleID~ "BC_JDM_p4",
-      SampleID == "JDM#9" ~ "BC_JDM_p9",
-      SampleID == "JDM#4,_2" & !"BC_JDM_p4"%in%SampleID  ~ "BC_JDM_p4",
-      # SampleID == "IBD_4_1" ~ "Twin4_serum",
-      # SampleID == "JDM#8_3" ~ "BC_JDM_s8",
-      # SampleID == "IBD_2_2" ~ "Twin2_Sohep",
-      # SampleID == "JDM#4,_2" ~ "BC_JDM_p4",
-      SampleID == "JDM#8_3" & !"BC_JDM_s8"%in%SampleID ~ "BC_JDM_s8",
-      TRUE ~ SampleID
-    ))%>% 
-    mutate(plate = 
-             case_when(
-               PlateID == "19aug2021_Zo project_plt 15"~15,
-               PlateID == "19may_SN&ED_pilot#4_plt6 I-O"  ~ 6,
-               PlateID == "20may2021_SN&ED_pilot#34_plt7 I-O" ~ 7,
-               PlateID == "20may2021_SN&ED_pliot#4_plt8 I-O"    ~ 8,
-               PlateID == "23apr2021_SN&ED_pilot#3_plt3_I-O"    ~ 3,
-               PlateID == "23apr2021_SN&ED_pilot#3_plt4_I-O"   ~ 4,
-               PlateID == "23apr2021_SN&ED_pilot#3_plt5_I-O"  ~ 5,
-               PlateID ==  "24aug2021_Zo project_plt 16"   ~ 16,
-               PlateID == "24mrt2021_SNierkens&EDelemarre_pilot#2_I-O"  ~ 2,
-               PlateID == "26feb2021_Stefan Nierkens_I-O_pilot"   ~ 1,
-               PlateID == "7jun2021_Zo project_I-O_plt 10" ~ 10,
-               PlateID ==  "7jun2021_Zo project_I-O_plt 11"  ~ 11,
-               PlateID ==  "7jun2021_Zo project_I-O_plt 9" ~ 9,
-               PlateID ==  "mrt2022_Zo_I-O_plt 25"   ~ 25,
-               PlateID ==  "mrt2022_Zo_I-O_plt 28"     ~ 28,
-               PlateID == "mrt2022_Zo_I-O_plt 34" ~ 34,
-               PlateID == "mrt2022_Zo_I-O_plt 36"  ~ 36,
-               PlateID == "mrt2022_Zo-I-O_plt 29"  ~ 29,
-               PlateID == "mrt2022-Zo_I-O_plt 35"  ~ 35,
-               PlateID == "Zo project_I-O_plt 26"  ~ 26,
-               PlateID == "Zo project_I-O-plt 27" ~ 27,
-               PlateID == "Zo project_jun2021_plt 12" ~ 12,
-               PlateID == "Zo project_jun2021_Plt 13" ~ 13,
-               PlateID == "Zo project_jun2021_plt 14" ~ 14,
-               PlateID == "Zo_plt21_I-O"  ~ 21,
-               PlateID == "Zo_plt22_I-O" ~ 22,
-               PlateID ==  "ZO_plt32_I-O"  ~ 32,
-               PlateID == "ZO_plt33_I-O" ~ 33,
-               PlateID == "Zo_project_plt 23" ~ 23,
-               PlateID == "Zo-plt 17" ~ 17,
-               PlateID ==  "Zo-plt 18" ~ 18,
-               PlateID ==  "Zo-plt 19" ~ 19,
-               PlateID == "Zo-plt 20"  ~ 20,
-               PlateID == "Zo-project_plt 24" ~ 24,
-               PlateID == "26apr2022_Zo_I-O_plt 37" ~ 37,
-               PlateID == "26apr2022_Zo_I-O_plt 38" ~ 38,
-               PlateID == "26apr2022_Zo_O-D_plt 37" ~ 37,
-               PlateID == "26apr2022_Zo_O-D_plt 38" ~ 38,
-               PlateID == "ZO_plt31_OD" ~ 31,
-               PlateID == "Zo_plt32_OD" ~ 32, 
-               PlateID ==  "Zo_plt33_OD" ~33,
-               PlateID == "mrt2022_Zo_O-D_plt 34" ~ 34,
-               PlateID == "mrt2022-Zo_O-D_plt 35" ~ 35,
-               PlateID == "Zo_O-D_plt 36" ~ 36,
-               PlateID == "13jul2022_Zo_I-O_plt 30" ~ 30,
-               PlateID == "7jul2022_Zo_I-O_plt 32" ~ 32,
-               PlateID == "7jul2022_Zo_I-O_plt 39" ~ 39,
-               PlateID == "14jul2022_Zo_I-O_plt 31" ~ 31,
-               PlateID == "7jul2022_Zo_O-D_plt 39" ~ 39,
-               PlateID == "Zo project_I-O_plt 40" ~ 40,
-               PlateID == "Zo project_O-D_plt 40" ~ 40,
-               T ~ NA_real_
-             )) %>% ungroup()
-  return(data)
-}
-
-
-
