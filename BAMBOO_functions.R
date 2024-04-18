@@ -65,12 +65,12 @@ loadNPXfiles <- function(path){
   plateList <- split(plates,f = plates$PlateID)
   return(plateList)
 }
-# file <- "/Users/Hidde/Documents/GitHub/BAMBOO/data//normalizedSubjectPlate.xlsx"  
 
 readNPX <- function(file){
   # To do: make the format for the NPX file more flexible
   # This function reads a single NPX file and returns a long format dataframe
   # param file: path to the NPX file this can be in Olink format or a data.frame with samples as rows, and columns as proteins
+  # To do: import multiple version of the data
   
   suppressMessages(p <- read.xlsx(file, colNames = F))
   if(p[2,1] == "NPX data"){
@@ -94,7 +94,7 @@ readNPX <- function(file){
     
     suppressMessages(
       longData <- NPXdata %>% 
-      pivot_longer(cols = all_of(Assays), values_to = "NPX", names_to = "Assay") %>% 
+      pivot_longer(cols = any_of(Assays), values_to = "NPX", names_to = "Assay") %>% 
       mutate(NPX = as.numeric(NPX)) %>% 
       left_join(plateID) %>% 
       left_join(LOD_df) %>% 
@@ -107,7 +107,7 @@ readNPX <- function(file){
     LOD <- data.frame(LOD = unlist(p[which(p[,1] == "LOD"),3:94] ), Assay = Assays)
     
     NPXdata <- p[1:82,] 
-    suppressMessages(longData <- pivot_longer(NPXdata, cols = all_of(Assays), values_to = "NPX", names_to = "Assay") %>% 
+    suppressMessages(longData <- pivot_longer(NPXdata, cols = any_of(Assays), values_to = "NPX", names_to = "Assay") %>% 
       left_join(LOD)  %>% 
       mutate(NPX = as.numeric(NPX)) %>% 
       mutate(LOD = as.numeric(LOD)))
@@ -130,7 +130,7 @@ BAMBOO_normalization <- function(plateReference, plateSubject, BCs, LODthreshold
   
   BCs <- removeOutliers(plateReference, plateSubject, BCs, quantileThreshold = 0.95) #based on interquantile outlier detection
   
-  flaggedAssays <- flagAssay(plateReference = plateReference, plateSubject = plateSubject, BCs = BCs, BCsAboveLOD = LODthreshold, correlationThreshold = 0)
+  flaggedAssays <- flagAssay(plateReference = plateReference, plateSubject = plateSubject, BCs = BCs, BCsAboveLOD = LODthreshold)
   
   plateReferenceBCs <- plateReference %>% 
     mutate(AssayFlag = Assay%in%flaggedAssays) %>% 
@@ -232,25 +232,26 @@ sumOfSquares <- function(plateRef, plateSubject, samplesOfInterest = NULL, na.rm
 }
 
 
-writeNPX <- function(plate, path, filename){
+writeNPX <- function(plateDF, path, filename){
   # This functions save the long format NPX data in a excel file
   # plate: the NPX data in long format
   # path: the path where the file has to be saved
   # filename: the name of the file
+  # To do: Make the output in the correct format so it can be used with the Olink Analyze package
   
-  body <- plate %>% select(-Adj_factor, -LOD, -AssayFlag, -plate) %>% pivot_wider(names_from = "Assay", values_from = "NPX")
-  plateID <- plate %>% pull(plate) %>% unique()
-  tail <- plate %>% 
+  body <- plateDF %>% select(-any_of(c("Adj_factor", "LOD", "AssayFlag", "PlateID"))) %>% pivot_wider(names_from = "Assay", values_from = "NPX")
+  plateID <- plateDF %>% pull(PlateID) %>% unique()
+  tail <- plateDF %>% 
     select(Adj_factor, LOD, AssayFlag) %>% 
     mutate(AssayFlag = AssayFlag * 1) %>% 
     distinct() %>% 
     t() %>% 
     as.data.frame() # this must be merged based on the assays, below the body
   blankDF <- data.frame(matrix(data = NA, nrow = nrow(tail), ncol = 2))%>% mutate_all(as.character) 
-  tail <- cbind(blankDF, tail)[-4,] 
-  colnames(tail) <- colnames(body)
+  # tail <- cbind(blankDF, tail)[-4,] 
+  # colnames(tail) <- colnames(body)
   
-  NPX_data <- bind_rows(body, tail) 
+  NPX_data <- bind_rows(body) #tail 
   NPX_data$plateID <- plateID
   write.xlsx(NPX_data, file = paste0(path, filename))
 }
