@@ -16,3 +16,5 @@ Example Script: Check out the example script example.py provided in this reposit
 ## Citation
 If you find BAMBOO batch correction useful in your research, please consider citing our paper:
 "Correction of batch effects in high throughput proximity extension assays for proteomic studies using bridging controls: the BAMBOO method."
+
+## About the limit of detection
