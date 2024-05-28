@@ -55,7 +55,7 @@ message("
         
         
                         Importing the BAMBOO functions 
-                          h.m.smits-7@umcutrecht.nl")
+                          cic@umcutrecht.nl")
 
 loadNPXfiles <- function(path){
   # This function loads all NPX files in a folder and returns a list of dataframes
