@@ -2,9 +2,9 @@
 ################ Example script #####################
 #####################################################
 
-source("/Users/Hidde/Documents/GitHub/BAMBOO/BAMBOO_functions.R")
-path <- "/Users/Hidde/Documents/GitHub/BAMBOO/data/"
-plateList <- loadNPXfiles("/Users/Hidde/Documents/GitHub/BAMBOO/data/")
+source("./GitHub/BAMBOO/BAMBOO_functions.R")
+path <- "./GitHub/BAMBOO/data/"
+plateList <- loadNPXfiles("./GitHub/BAMBOO/data/")
 
 referencePlate <- plateList[[1]]
 subjectPlate <- plateList[[2]]
@@ -15,4 +15,4 @@ norm.SubjectPlate <- BAMBOO_normalization(referencePlate, subjectPlate, BCs = BC
 
 plotBeforeAndAfter(referencePlate, subjectPlate, norm.SubjectPlate)
 
-writeNPX(norm.SubjectPlate, path =  "/Users/Hidde/Documents/GitHub/BAMBOO/normData/", filename = "normalizedSubjectPlate.xlsx")
+writeNPX(norm.SubjectPlate, path =  "./GitHub/BAMBOO/normData/", filename = "normalizedSubjectPlate.xlsx")
