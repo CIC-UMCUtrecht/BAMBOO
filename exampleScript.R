@@ -1,34 +1,32 @@
 #####################################################
-################ Example script #####################
+################ Example Script #####################
 #####################################################
 
+# Load necessary functions
 source("./GitHub/BAMBOO/BAMBOO_functions.R")
-path <- "./GitHub/BAMBOO/data/"
+data_path <- "./GitHub/BAMBOO/data/"
 
-# Here you can enter the path to the NPX data, currently BAMBOO only support the wide format of the data.
+# Load NPX data files (only wide format is supported)
+plate_list <- loadNPXfiles(data_path)
 
-plateList <- loadNPXfiles("./GitHub/BAMBOO/data/")
+# Define reference and subject plates
+reference_plate <- plate_list[[1]]
+subject_plate <- plate_list[[2]]
 
-# Here you define both plates
+# Define bridging controls
+bridging_controls <- intersect(reference_plate$SampleID, subject_plate$SampleID)
 
-referencePlate <- plateList[[1]]
+# Perform BAMBOO normalization
+normalized_subject_plate <- BAMBOO_normalization(
+  reference_plate, 
+  subject_plate, 
+  BCs = bridging_controls, 
+  LODthreshold = 6
+)
 
-# Here you define the plate you'd like to normalize to the reference plate
+# Plot bridging controls before and after BAMBOO normalization
+plotBeforeAndAfter(reference_plate, subject_plate, normalized_subject_plate)
 
-subjectPlate <- plateList[[2]]
-
-# Here you can define the bridging controls
-
-BCs <- intersect(referencePlate$SampleID, subjectPlate$SampleID) 
-
-# BAMBOO
-
-norm.SubjectPlate <- BAMBOO_normalization(referencePlate, subjectPlate, BCs = BCs, LODthreshold = 6)
-
-# Plot the bridging controls on both plates against each other before and after BAMBOO.
-
-plotBeforeAndAfter(referencePlate, subjectPlate, norm.SubjectPlate)
-
-# Save the data in wide format
-
+# Save the normalized data in wide format
 writeNPX(norm.SubjectPlate, path =  "./GitHub/BAMBOO/normData/", filename = "normalizedSubjectPlate.xlsx")
+
