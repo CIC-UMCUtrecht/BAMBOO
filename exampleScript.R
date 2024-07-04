@@ -28,5 +28,4 @@ normalized_subject_plate <- BAMBOO_normalization(
 plot_before_and_after(reference_plate, subject_plate, normalized_subject_plate)
 
 # Save the normalized data in wide format
-write_NPX(normalized_subject_plate, path =  "./GitHub/BAMBOO/normData/", filename = "normalized_subject_plate.xlsx")
-
+write_NPX(normalized_subject_plate, path = "./GitHub/BAMBOO/normData/", filename = "normalized_subject_plate.xlsx")
