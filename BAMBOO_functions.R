@@ -1,8 +1,9 @@
-suppressWarnings(suppressMessages(require(tidyverse))) # rewrite without the tidyverse????
+# Loading necessary packages
 suppressWarnings(suppressMessages(require(openxlsx))) # Only package that is really needed
 suppressWarnings(suppressMessages(require(robustbase))) # Only package that is really needed
-suppressWarnings(suppressMessages(require(gridExtra))) # save plots separate????
+suppressWarnings(suppressMessages(require(gridExtra))) # save plots separate
 
+# Define dplyr functions for convenience
 recode <- dplyr::recode
 select <- dplyr::select
 filter <- dplyr::filter
@@ -11,13 +12,13 @@ summarise <- dplyr::summarise
 group_by <- dplyr::group_by
 case_when <- dplyr::case_when
 
-# This scripts has the functions used to normalize Olink NPX data using 
-# bridging controls. The functions are:
-# - loadNPXfiles: loads all NPX files in a folder and returns a list of dataframes
-# - readNPX: reads a single NPX file and returns a long format dataframe
+# This script has the functions used to normalize Olink NPX data using bridging controls. 
+# The functions are:
+# - load_NPX_files: loads all NPX files in a folder and returns a list of dataframes
+# - read_NPX: reads a single NPX file and returns a long format dataframe
 # - BAMBOO_normalization: normalizes the data between two plates using bridging controls
 # - BAMBOO_plot: plots the data before and after normalization
-# - write_NPX_files: writes the normalized data in wide format to a folder
+# - write_NPX: writes the normalized data in wide format to a folder
 
 message("                                                                                
                            %%%%%%%%%%      .%%%%%%%%%&                          
@@ -57,213 +58,214 @@ message("
                         Importing the BAMBOO functions 
                           cic@umcutrecht.nl")
 
-loadNPXfiles <- function(path){
+load_NPX_files <- function(path) {
   # This function loads all NPX files in a folder and returns a list of dataframes
   # param path: path to the folder with the NPX files
-  plateFiles <- list.files(path, full.names = T)
-  plates <- Reduce(bind_rows, lapply(plateFiles, readNPX))
-  plateList <- split(plates,f = plates$PlateID)
-  return(plateList)
+  plate_files <- list.files(path, full.names = TRUE)
+  plates <- Reduce(bind_rows, lapply(plate_files, read_NPX))
+  plate_list <- split(plates, f = plates$PlateID)
+  return(plate_list)
 }
 
-readNPX <- function(file){
-  # To do: make the format for the NPX file more flexible
+read_NPX <- function(file) {
   # This function reads a single NPX file and returns a long format dataframe
-  # param file: path to the NPX file this can be in Olink format or a data.frame with samples as rows, and columns as proteins
-  # To do: import multiple version of the data
+  # param file: path to the NPX file
   
-  suppressMessages(p <- read.xlsx(file, colNames = F))
-  if(p[2,1] == "NPX data"){
-    ########################################################################
-    # This is classic style Olink Data, we transform it to long format data#
-    ########################################################################
+  suppressMessages(p <- read.xlsx(file, colNames = FALSE))
+  
+  if (p[2, 1] == "NPX data") {
+    # Classic style Olink Data, transform it to long format data
     header <- p[1:6,]
-    EndBodyRow <- which(p[,1] == "LOD")
-    NPXdata <- p[7:EndBodyRow-1,1:93]
-    SampleData <- p[7:EndBodyRow-1,94:97]
-    tail <- p[(EndBodyRow ):(EndBodyRow + 2),]
+    EndBodyRow <- which(p[, 1] == "LOD")
+    NPXdata <- p[7:(EndBodyRow - 1), 1:93]
+    SampleData <- p[7:(EndBodyRow - 1), 94:97]
+    tail <- p[EndBodyRow:(EndBodyRow + 2),]
     
-    Assays <- unname(unlist(header[4,2:93]))
-    LOD_df <- data.frame(Assay = Assays, LOD = unname(unlist(tail[1,2:93])))
-    plateID <- data.frame(SampleID = NPXdata[,1], 
-                          PlateID = SampleData[,1],
-                          stringsAsFactors = F
-                          )
+    Assays <- unname(unlist(header[4, 2:93]))
+    LOD_df <- data.frame(Assay = Assays, LOD = unname(unlist(tail[1, 2:93])))
+    plateID <- data.frame(SampleID = NPXdata[, 1], PlateID = SampleData[, 1], stringsAsFactors = FALSE)
     
     colnames(NPXdata) <- c("SampleID", Assays)
     
     suppressMessages(
       longData <- NPXdata %>% 
-      pivot_longer(cols = any_of(Assays), values_to = "NPX", names_to = "Assay") %>% 
-      mutate(NPX = as.numeric(NPX)) %>% 
-      left_join(plateID) %>% 
-      left_join(LOD_df) %>% 
-      mutate(LOD = as.numeric(LOD)))
+        pivot_longer(cols = any_of(Assays), values_to = "NPX", names_to = "Assay") %>% 
+        mutate(NPX = as.numeric(NPX)) %>% 
+        left_join(plateID) %>% 
+        left_join(LOD_df) %>% 
+        mutate(LOD = as.numeric(LOD))
+    )
       
-  }else{
-    colnames(p) <- p[1,]
-    p <- p[-1,]
+  } else {
+    colnames(p) <- p[1, ]
+    p <- p[-1, ]
     Assays <- colnames(p)[3:94]
-    LOD <- data.frame(LOD = unlist(p[which(p[,1] == "LOD"),3:94] ), Assay = Assays)
+    LOD <- data.frame(LOD = unlist(p[which(p[, 1] == "LOD"), 3:94]), Assay = Assays)
     
-    NPXdata <- p[1:82,] 
+    NPXdata <- p[1:82, ] 
     suppressMessages(longData <- pivot_longer(NPXdata, cols = any_of(Assays), values_to = "NPX", names_to = "Assay") %>% 
       left_join(LOD)  %>% 
       mutate(NPX = as.numeric(NPX)) %>% 
       mutate(LOD = as.numeric(LOD)))
-    
   }
+  
   return(longData)
 }
 
-BAMBOO_normalization <- function(plateReference, plateSubject, BCs, LODthreshold = 6){
+BAMBOO_normalization <- function(plate_reference, plate_subject, BCs, LOD_threshold = 6) {
   # The original BAMBOO function that normalizes the data between two plates using bridging controls
-  # plateReference: the references plate as NPX long format file
-  # plateSubject: the plate that has to be normalized to the reference plate, in NPX long format
+  # plate_reference: the references plate as NPX long format file
+  # plate_subject: the plate that has to be normalized to the reference plate, in NPX long format
   # BCs: vector with BC names (as seen in the SampleID column)
-  # LODthreshold: Number of values that have to be above LOD to be not flagged
+  # LOD_threshold: Number of values that have to be above LOD to be not flagged
   
-  mutate <- dplyr::mutate
-  if(is.null(BCs)){
-    BCs <- intersect(plateReference$SampleID, plateSubject$SampleID)
+  if (is.null(BCs)) {
+    BCs <- intersect(plate_reference$SampleID, plate_subject$SampleID)
   }
   
-  BCs <- removeOutliers(plateReference, plateSubject, BCs, quantileThreshold = 0.95) #based on interquantile outlier detection
+  BCs <- remove_outliers(plate_reference, plate_subject, BCs, quantile_threshold = 0.95) # based on interquantile outlier detection
   
-  flaggedAssays <- flagAssay(plateReference = plateReference, plateSubject = plateSubject, BCs = BCs, BCsAboveLOD = LODthreshold)
+  flagged_assays <- flag_assay(plate_reference, plate_subject, BCs, LOD_threshold)
   
-  plateReferenceBCs <- plateReference %>% 
-    mutate(AssayFlag = Assay%in%flaggedAssays) %>% 
+  plate_reference_BCs <- plate_reference %>% 
+    mutate(AssayFlag = Assay %in% flagged_assays) %>% 
     group_by(Assay) %>% 
-    filter(SampleID%in%BCs)  %>% 
-    mutate(NPX = case_when(NPX >= LOD ~ NPX, # check if order is correct
-                           AssayFlag  ~ NPX,
-                           NPX < LOD ~ NA))  
+    filter(SampleID %in% BCs)  %>% 
+    mutate(NPX = case_when(NPX >= LOD ~ NPX, AssayFlag ~ NPX, NPX < LOD ~ NPX))
   
-
-  
-  plateSubjectBCs <- plateSubject %>% 
-    mutate(AssayFlag = Assay%in%flaggedAssays) %>% 
+  plate_subject_BCs <- plate_subject %>% 
+    mutate(AssayFlag = Assay %in% flagged_assays) %>% 
     group_by(Assay) %>% 
-    filter(SampleID%in%BCs) %>% 
-    mutate(NPX = case_when(NPX >= LOD ~ NPX, # check if order is correct
-                           AssayFlag  ~ NPX,
-                           NPX < LOD ~ NA)) 
-    
-
+    filter(SampleID %in% BCs) %>% 
+    mutate(NPX = case_when(NPX >= LOD ~ NPX, AssayFlag ~ NPX, NPX < LOD ~ NPX))
   
-  mergedPlates <- inner_join(plateReferenceBCs, plateSubjectBCs, by = c("SampleID", "Assay"), suffix = c(".ref", ".sub")) 
+  merged_plates <- inner_join(plate_reference_BCs, plate_subject_BCs, by = c("SampleID", "Assay"), suffix = c(".ref", ".sub")) 
   
-  if(!all(mergedPlates$SampleID%in%BCs)){
-    
-    message("sample ", setdiff(mergedPlates$SampleID, BCs), "not present in both plates")
-    
+  if (!all(merged_plates$SampleID %in% BCs)) {
+    message("Sample ", setdiff(merged_plates$SampleID, BCs), " not present in both plates")
   }
   
-  modelCoeff <- lmrob(NPX.ref ~ NPX.sub, data = mergedPlates, na.action = "na.omit")$coefficients
+  model_coeff <- lmrob(NPX.ref ~ NPX.sub, data = merged_plates, na.action = "na.omit")$coefficients
   
-  Adj_factors <- mergedPlates %>% 
+  Adj_factors <- merged_plates %>% 
     group_by(Assay) %>% 
-    mutate(Adj_factor = median(NPX.ref - (NPX.sub*modelCoeff[["NPX.sub"]] + modelCoeff[["(Intercept)"]]), na.rm = T)) %>% 
+    mutate(Adj_factor = median(NPX.ref - (NPX.sub * model_coeff[["NPX.sub"]] + model_coeff[["(Intercept)"]]), na.rm = TRUE)) %>% 
     dplyr::select(c("Assay", "Adj_factor")) %>% 
-    unique() %>% ungroup()
+    unique() %>% 
+    ungroup()
   
-  plateSubject <- plateSubject %>% 
+  plate_subject <- plate_subject %>% 
     left_join(Adj_factors, by = "Assay") %>% 
-    dplyr::mutate(NPX = NPX*modelCoeff[["NPX.sub"]] + modelCoeff[["(Intercept)"]] + Adj_factor,
-           LOD = LOD*modelCoeff[["NPX.sub"]] + modelCoeff[["(Intercept)"]] + Adj_factor) %>% 
-    mutate(AssayFlag = Assay%in%flaggedAssays)
+    dplyr::mutate(NPX = NPX * model_coeff[["NPX.sub"]] + model_coeff[["(Intercept)"]] + Adj_factor,
+                  LOD = LOD * model_coeff[["NPX.sub"]] + model_coeff[["(Intercept)"]] + Adj_factor) %>% 
+    mutate(AssayFlag = Assay %in% flagged_assays)
   
-  return(plateSubject)
+  return(plate_subject)
 }
 
-
-
-flagAssay <- function(plateReference, plateSubject, BCs, BCsAboveLOD = 6){
+flag_assay <- function(plate_reference, plate_subject, BCs, BCs_above_LOD = 6) {
   # Function that flags assays that are below the detection limit in a certain number of the samples
-  # plateReference: the references plate as NPX long format file
-  # plateSubject: the plate that has to be normalized to the reference plate, in NPX long format
+  # plate_reference: the references plate as NPX long format file
+  # plate_subject: the plate that has to be normalized to the reference plate, in NPX long format
   # BCs: vector with BC names (as seen in the SampleID column)
-  # BCsAboveLOD: Number of values that have to be above LOD to be not flagged
+  # BCs_above_LOD: Number of values that have to be above LOD to be not flagged
   
-  belowLODBCs.ref <- plateReference %>% filter(SampleID%in%BCs) %>% mutate_at(vars(NPX), ~replace(., is.na(.), 0)) %>% group_by(Assay) %>% filter((sum(NPX > LOD) < BCsAboveLOD)) %>% pull(Assay) %>% unique()
-  belowLODBCs.sub <- plateSubject %>% filter(SampleID%in%BCs) %>% mutate_at(vars(NPX), ~replace(., is.na(.), 0)) %>% group_by(Assay) %>% filter((sum(NPX > LOD) < BCsAboveLOD)) %>% pull(Assay) %>% unique()
+  below_LOD_BCs.ref <- plate_reference %>% filter(SampleID %in% BCs) %>% 
+    mutate_at(vars(NPX), ~replace(., is.na(.), 0)) %>% 
+    group_by(Assay) %>% 
+    filter((sum(NPX > LOD) < BCs_above_LOD)) %>% pull(Assay) %>% unique()
   
-  # message("The following assays were removed because they were below detection limit in ", plateBelowLOD*100, "% of the samples ", paste(unique(c(belowLODplate.ref, belowLODplate.sub)), collapse = ", ") )
-  message("The following assays were flagged because less than ", BCsAboveLOD, " samples were above detection limit ",paste(unique(c(belowLODBCs.ref, belowLODBCs.sub)), collapse = ", "))
-
-  flaggedAssays <- unique(c(belowLODBCs.ref, belowLODBCs.sub))
+  below_LOD_BCs.sub <- plate_subject %>% filter(SampleID %in% BCs) %>% 
+    mutate_at(vars(NPX), ~replace(., is.na(.), 0)) %>% 
+    group_by(Assay) %>% 
+    filter((sum(NPX > LOD) < BCs_above_LOD)) %>% pull(Assay) %>% unique()
   
-  return(flaggedAssays)
+  message("The following assays were flagged because less than ", BCs_above_LOD, " samples were above detection limit ", paste(unique(c(below_LOD_BCs.ref, below_LOD_BCs.sub)), collapse = ", "))
+  
+  flagged_assays <- unique(c(below_LOD_BCs.ref, below_LOD_BCs.sub))
+  
+  return(flagged_assays)
 }
 
-
-removeOutliers <- function(plateReference, plateSubject, BCs, quantileThreshold = 0.95){ #inter Quantile outlier detection -> can be improved
+remove_outliers <- function(plate_reference, plate_subject, BCs, quantile_threshold = 0.95) { 
   # Function that removes outliers based on the sum of squares of the difference between the reference and the subject plate
-  # plateReference: the references plate as NPX long format file
-  # plateSubject: the plate that has to be normalized to the reference plate, in NPX long format
+  # plate_reference: the references plate as NPX long format file
+  # plate_subject: the plate that has to be normalized to the reference plate, in NPX long format
   # BCs: vector with BC names (as seen in the SampleID column)
-  # quantileThreshold: the threshold for the sum of squares to be considered an outlier
+  # quantile_threshold: the threshold for the sum of squares to be considered an outlier
   
-  ss <- sumOfSquares(plateReference, plateSubject, samplesOfInterest = BCs, na.rm = T)
+  ss <- sum_of_squares(plate_reference, plate_subject, samples_of_interest = BCs, na.rm = TRUE)
   
-  outlierSamples <- ss %>% filter(SS > quantile(ss$SS, quantileThreshold)) %>% pull(SampleID)
+  outlier_samples <- ss %>% filter(SS > quantile(ss$SS, quantile_threshold)) %>% pull(SampleID)
   
-  message(paste0("identiefied the following sample as outlier: ", outlierSamples, "\n"))
+  message(paste0("Identified the following sample as outlier: ", outlier_samples, "\n"))
   
-  return(BCs[!BCs%in%outlierSamples])
-  
+  return(BCs[!BCs %in% outlier_samples])
 }
 
-sumOfSquares <- function(plateRef, plateSubject, samplesOfInterest = NULL, na.rm = F){ 
+sum_of_squares <- function(plate_reference, plate_subject, samples_of_interest = NULL, na.rm = FALSE) { 
   # Function that calculates the sum of squares of the difference between the reference and the subject plate BCs
-  # plateReference: the references plate as NPX long format file
-  # plateSubject: the plate that has to be normalized to the reference plate, in NPX long format
-  # samplesOfInterest: vector with BC names (as seen in the SampleID column)
+  # plate_reference: the references plate as NPX long format file
+  # plate_subject: the plate that has to be normalized to the reference plate, in NPX long format
+  # samples_of_interest: vector with BC names (as seen in the SampleID column)
   # na.rm: remove NA values
   
-  if(is.null(samplesOfInterest)){
-    samplesOfInterest <- intersect(plateRef$SampleID, plateSubject$SampleID)
+  if (is.null(samples_of_interest)) {
+    samples_of_interest <- intersect(plate_reference$SampleID, plate_subject$SampleID)
   }
-  ss <- inner_join(plateRef %>% filter(SampleID %in% samplesOfInterest), plateSubject %>% filter(SampleID %in% samplesOfInterest), by = c("SampleID", "Assay")) %>% 
-    filter(SampleID%in%samplesOfInterest) %>% group_by(SampleID) %>% 
-    summarise(SS = sum((NPX.x - NPX.y)**2, na.rm = na.rm))
+  ss <- inner_join(plate_reference %>% filter(SampleID %in% samples_of_interest), plate_subject %>% filter(SampleID %in% samples_of_interest), by = c("SampleID", "Assay")) %>% 
+    filter(SampleID %in% samples_of_interest) %>% 
+    group_by(SampleID) %>% 
+    summarise(SS = sum((NPX.x - NPX.y)^2, na.rm = na.rm))
   return(ss)
 }
 
-
-writeNPX <- function(plateDF, path, filename){
-  # This functions save the long format NPX data in a excel file
-  # plate: the NPX data in long format
+write_NPX <- function(plate.DF, path, filename) {
+  # This function saves the long format NPX data in an Excel file
+  # plate.DF: the NPX data in long format
   # path: the path where the file has to be saved
   # filename: the name of the file
-  # To do: Make the output in the correct format so it can be used with the Olink Analyze package
   
-  body <- plateDF %>% select(-any_of(c("Adj_factor", "LOD", "AssayFlag", "PlateID"))) %>% pivot_wider(names_from = "Assay", values_from = "NPX")
-  plateID <- plateDF %>% pull(PlateID) %>% unique()
-  tail <- plateDF %>% 
+  body <- plate.DF %>% select(-any_of(c("Adj_factor", "LOD", "AssayFlag", "PlateID"))) %>% pivot_wider(names_from = "Assay", values_from = "NPX")
+  plateID <- plate.DF %>% pull(PlateID) %>% unique()
+  tail <- plate.DF %>% 
     select(Adj_factor, LOD, AssayFlag) %>% 
-    mutate(AssayFlag = AssayFlag * 1) %>% 
+    mutate(AssayFlag = as.numeric(AssayFlag)) %>% 
     distinct() %>% 
     t() %>% 
-    as.data.frame() # this must be merged based on the assays, below the body
-  blankDF <- data.frame(matrix(data = NA, nrow = nrow(tail), ncol = 2))%>% mutate_all(as.character) 
-  # tail <- cbind(blankDF, tail)[-4,] 
-  # colnames(tail) <- colnames(body)
+    as.data.frame()
+  blankDF <- data.frame(matrix(data = NA, nrow = nrow(tail), ncol = 2)) %>% mutate_all(as.character) 
   
-  NPX_data <- bind_rows(body) #tail 
-  NPX_data$plateID <- plateID
+  NPX_data <- bind_rows(body)
+  NPX_data$PlateID <- plateID
   write.xlsx(NPX_data, file = paste0(path, filename))
 }
 
-plotBeforeAndAfter <- function(referencePlate, subjectPlate, norm.SubjectPlate){
-  # Function that plots the NPX values of the reference plate, the subject plate and the normalized subject plate
-  # referencePlate: the references plate as NPX long format file
-  # subjectPlate: the plate that has to be normalized to the reference plate, in NPX long format
-  # norm.SubjectPlate: the normalized values of the subject plate
+plot_before_and_after <- function(reference_plate, subject_plate, norm_subject_plate) {
+  # Function that plots the NPX values of the reference plate, the subject plate, and the normalized subject plate
+  # reference_plate: the references plate as NPX long format file
+  # subject_plate: the plate that has to be normalized to the reference plate, in NPX long format
+  # norm_subject_plate: the normalized values of the subject plate
   
-  p1 <- inner_join(referencePlate, subjectPlate, by = c("SampleID", "Assay")) %>% ggplot(aes(x = NPX.x, y = NPX.y, col = Assay, shape = NPX.x < LOD.x | NPX.y < LOD.y)) + geom_point() + theme_bw() + theme(legend.position = "none") + geom_abline(linetype = 2) + xlim(c(-2,16)) + ylim(c(-2,16))  + ggtitle("Before")
-  p2 <- inner_join(referencePlate, norm.SubjectPlate, by = c("SampleID", "Assay")) %>% ggplot(aes(x = NPX.x, y = NPX.y, col = Assay, shape = NPX.x < LOD.x | NPX.y < LOD.y)) + geom_point() + theme_bw() + theme(legend.position = "none") + geom_abline(linetype = 2)+ xlim(c(-2,16))+ ylim(c(-2,16)) + ggtitle("After")
+  p1 <- inner_join(reference_plate, subject_plate, by = c("SampleID", "Assay")) %>% 
+    ggplot(aes(x = NPX.x, y = NPX.y, col = Assay, shape = NPX.x < LOD.x | NPX.y < LOD.y)) + 
+    geom_point() + 
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    geom_abline(linetype = 2) + 
+    xlim(c(-2, 16)) + 
+    ylim(c(-2, 16)) + 
+    ggtitle("Before")
   
-  gridExtra::grid.arrange(p1,p2, nrow = 1)
+  p2 <- inner_join(reference_plate, norm_subject_plate, by = c("SampleID", "Assay")) %>% 
+    ggplot(aes(x = NPX.x, y = NPX.y, col = Assay, shape = NPX.x < LOD.x | NPX.y < LOD.y)) + 
+    geom_point() + 
+    theme_bw() + 
+    theme(legend.position = "none") + 
+    geom_abline(linetype = 2) + 
+    xlim(c(-2, 16)) + 
+    ylim(c(-2, 16)) + 
+    ggtitle("After")
+  
+  gridExtra::grid.arrange(p1, p2, nrow = 1)
 }
