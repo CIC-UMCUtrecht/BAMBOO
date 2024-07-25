@@ -2,6 +2,7 @@
 suppressWarnings(suppressMessages(require(openxlsx))) # Only package that is really needed
 suppressWarnings(suppressMessages(require(robustbase))) # Only package that is really needed
 suppressWarnings(suppressMessages(require(gridExtra))) # save plots separate
+suppressWarnings(suppressMessages(require(tidyverse))) 
 
 # Define dplyr functions for convenience
 recode <- dplyr::recode
