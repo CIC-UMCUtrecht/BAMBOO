@@ -1,6 +1,6 @@
 # BAMBOO Batch Correction
 
-This repository contains functions for performing BAMBOO batch correction as described in the paper "Correction of batch effects in high throughput proximity extension assays for proteomic studies using bridging controls: the BAMBOO method." [https://doi.org/10.21203/rs.3.rs-4044125/v1]
+This repository contains functions for performing BAMBOO batch correction as described in the paper "Correction of batch effects in high throughput proximity extension assays for proteomic studies using bridging controls: the BAMBOO method." [https://doi.org/10.1038/s41598-024-84320-4]
 
 The BAMBOO batch correction method is designed to correct batch effects in Olink Explore data. It utilizes a robust linear regression model to correct for the three identified types of batch effects (plate, sample, and protein) while preserving biological variability.
 
