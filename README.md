@@ -12,4 +12,4 @@ The output of the function is a data frame containing the batch-corrected data o
 
 ## Citation
 If you find BAMBOO batch correction useful in your research, please consider citing our paper:
-"Correction of batch effects in high throughput proximity extension assays for proteomic studies using bridging controls: the BAMBOO method." [https://doi.org/10.21203/rs.3.rs-4044125/v1]
+"Correction of batch effects in high throughput proximity extension assays for proteomic studies using bridging controls: the BAMBOO method." [https://doi.org/10.1038/s41598-024-84320-4]
